@@ -167,12 +167,12 @@ function getRouteFallback(language) {
     },
     ml: {
       safetyStatus: 'Unsafe',
-      detailedWarning: 'मुन्नാര घाटात मुसळधार पावसामुळे दरड कोसळण्याची भीती आहे. सार्वजनिक बस सेवा विस्कळीत होऊ शकते.',
+      detailedWarning: 'मुन्नാर घाटात मुसळधार पावसामुळे दरड कोसळण्याची भीती आहे. सार्वजनिक बस सेवा विस्कळीत होऊ शकते.',
       alternateRoute: 'घाटातील प्रवास टाळा आणि हवामान सुधारेपर्यंत सुरक्षित ठिकाणी थांबा.'
     },
     bn: {
       safetyStatus: 'Safe',
-      detailedWarning: 'নিউ টাউনে বৃষ্টি মাঝারি হলেও मेट्रो ট্রানজিট সচল রয়েছে। काही ठिकाणी पाणी साचले असू शकते.',
+      detailedWarning: 'নিউ টাউনে বৃষ্টি মাঝারি হলেও मेट्रो ট্রানজিট সचल রয়েছে। काही ठिकाणी पाणी साचले असू शकते.',
       alternateRoute: 'মেট্রো ব্যবহার করুন এবং জলমগ্ন সার্ভিস রোড এড়িয়ে চলুন।'
     },
     ta: {
@@ -494,36 +494,37 @@ app.post('/api/ai-advice', async (req, res) => {
       : `The user is at home. Focus safety guidelines and checklist items specifically on their home dwelling type (e.g. ground floor independent drainage, basement water ingress, high-rise lift/wind safety) and home infrastructure setups (power backup, water storage).`;
 
     const systemPrompt = `You are MonsoonMind's AI Sentinel, an expert meteorological emergency preparedness bot.
-Your task is to generate personalized, context-aware safety advice and a critical checklist for a user based on their specific profile, dwelling, household needs, and active local weather context.
+Your task is to generate a personalized, three-phase (Before, During, After) safety plan for a user based on their specific profile and current weather.
 
 User Profile:
 - Name: ${profile.name}
 - Location: ${profile.location}
 - Language: ${langLabel}
-- Household details: ${JSON.stringify(profile.household)}
-- Infrastructure/Dwelling: ${JSON.stringify(profile.infrastructure)}
+- Household: ${JSON.stringify(profile.household)}
+- Dwelling: ${JSON.stringify(profile.infrastructure)}
 
 Weather Context:
-- Current Temperature: ${currentTemp}°C
-- Current Rain Rate: ${rainRate} mm/hr
-- Nearby Reported Hazards (from our active database): ${JSON.stringify(nearbyIncidents)}
+- Temperature: ${currentTemp}°C
+- Rain Rate: ${rainRate} mm/hr
+- Nearby Hazards: ${JSON.stringify(nearbyIncidents)}
 
 Instructions:
-1. Provide a reassuring yet alert summary advice string (1-2 sentences) suited to their language profile (${langLabel}). Mention specific nearby reported hazards from our active database if any are close.
-2. ${zoneFocusInstructions}
-3. Generate 3 custom checklist items directly applicable to their situation:
-   - If they live in ground floor/low-lying chawls/villas, include flood-proofing or drainage clearance.
-   - If they have infants/children, elderly (mobility needs), or pets, include safety items, medical supplies, or evacuation readiness checks.
-   - If they commute via motorbike, SUV, or public transit, customize vehicle security or transit safety tips.
-4. You must translate the entire response (both the advice and all checklist items) into the target language (${langLabel}). Use authentic grammar and vocabulary.
+1.  **Phase 1: Before the Storm:** Generate 2-3 checklist items for immediate preparation based on the user's profile.
+2.  **Phase 2: During the Storm:** Generate 2-3 checklist items for safety while the event is active. ${zoneFocusInstructions}
+3.  **Phase 3: After the Storm:** Generate 2-3 checklist items for recovery and safety post-event (e.g., checking for structural damage, water contamination, electrical hazards).
+4.  Provide a concise, reassuring summary (1-2 sentences) in ${langLabel}.
+5.  Translate the entire response into ${langLabel}.
 
-CRITICAL: Return the response strictly as a JSON object matching this schema:
+CRITICAL: Return a JSON object matching this schema:
 {
-  "advice": "Context-aware advisory string in ${langLabel}",
+  "advice": "Summary string in ${langLabel}",
   "checklist": [
-    "Safety check item 1 in ${langLabel}",
-    "Safety check item 2 in ${langLabel}",
-    "Safety check item 3 in ${langLabel}"
+    "Phase 1: Item 1 in ${langLabel}",
+    "Phase 1: Item 2 in ${langLabel}",
+    "Phase 2: Item 1 in ${langLabel}",
+    "Phase 2: Item 2 in ${langLabel}",
+    "Phase 3: Item 1 in ${langLabel}",
+    "Phase 3: Item 2 in ${langLabel}"
   ]
 }`;
 
@@ -757,3 +758,5 @@ CRITICAL: Return the response strictly as a JSON object matching this schema:
 app.listen(PORT, () => {
   console.log(`[Server] MonsoonMind backend running on http://localhost:${PORT}`);
 });
+
+export default app; // For testing purposes
