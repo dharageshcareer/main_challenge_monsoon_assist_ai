@@ -262,11 +262,18 @@ app.get('/api/profiles/:id', (req, res) => {
 // Create profile (Wizard onboarding)
 app.post('/api/profiles', (req, res) => {
   try {
-    const { name, location, latitude, longitude, language, household, infrastructure } = req.body;
+    const profileSchema = z.object({
+      name: z.string().min(1),
+      location: z.string().min(1),
+      latitude: z.number(),
+      longitude: z.number(),
+      language: z.string().min(1),
+      household: z.object({}).passthrough(),
+      infrastructure: z.object({}).passthrough(),
+    });
 
-    if (!name || !location || !language) {
-      return res.status(400).json({ error: 'Missing required onboarding parameters' });
-    }
+    const validatedProfile = profileSchema.parse(req.body);
+    const { name, location, latitude, longitude, language, household, infrastructure } = validatedProfile;
 
     const stmt = db.prepare(`
       INSERT INTO users (name, location, latitude, longitude, language, household_json, infrastructure_json)
@@ -276,11 +283,11 @@ app.post('/api/profiles', (req, res) => {
     const result = stmt.run(
       name,
       location,
-      parseFloat(latitude || 19.0760),
-      parseFloat(longitude || 72.8777),
+      latitude,
+      longitude,
       language,
-      JSON.stringify(household || {}),
-      JSON.stringify(infrastructure || {})
+      JSON.stringify(household),
+      JSON.stringify(infrastructure)
     );
 
     const selectStmt = db.prepare('SELECT * FROM users WHERE id = ?');
@@ -292,6 +299,9 @@ app.post('/api/profiles', (req, res) => {
       infrastructure: JSON.parse(newUser.infrastructure_json)
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid profile data', details: error.errors });
+    }
     console.error('[DB Error] Create profile failed:', error);
     res.status(500).json({ error: 'Internal server write error' });
   }
@@ -312,11 +322,15 @@ app.get('/api/incidents', (req, res) => {
 // Create new incident
 app.post('/api/incidents', (req, res) => {
   try {
-    const { category, latitude, longitude, reported_by } = req.body;
+    const incidentSchema = z.object({
+      category: z.string().min(1),
+      latitude: z.number(),
+      longitude: z.number(),
+      reported_by: z.string().optional(),
+    });
 
-    if (!category || !latitude || !longitude) {
-      return res.status(400).json({ error: 'Missing coordinates or incident category' });
-    }
+    const validatedIncident = incidentSchema.parse(req.body);
+    const { category, latitude, longitude, reported_by } = validatedIncident;
 
     const stmt = db.prepare(`
       INSERT INTO incidents (category, latitude, longitude, reported_by)
@@ -325,8 +339,8 @@ app.post('/api/incidents', (req, res) => {
 
     const result = stmt.run(
       category,
-      parseFloat(latitude),
-      parseFloat(longitude),
+      latitude,
+      longitude,
       reported_by || 'Anonymous'
     );
 
@@ -335,6 +349,9 @@ app.post('/api/incidents', (req, res) => {
 
     res.status(201).json(newIncident);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid incident data', details: error.errors });
+    }
     console.error('[DB Error] Create incident failed:', error);
     res.status(500).json({ error: 'Internal server write error' });
   }

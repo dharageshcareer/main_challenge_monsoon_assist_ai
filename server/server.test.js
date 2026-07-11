@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { initDatabase } from './database.js';
 import db from './database.js';
+import { describe, it, before, after } from 'node:test';
+import request from 'supertest';
+import app from '../server.js'; // Assuming server exports the app
 
 // Pre-test setup
 initDatabase();
@@ -51,5 +54,24 @@ test('Incident Reporting SQL Integration', async (t) => {
     const incident = checkStmt.get(result.lastInsertRowid);
     assert.strictEqual(incident.category, 'Severe Waterlogging');
     assert.strictEqual(incident.reported_by, 'E2E Integration Test Runner');
+  });
+});
+
+describe('API Integration Tests', () => {
+  let server;
+
+  before((done) => {
+    server = app.listen(3001, done);
+  });
+
+  after((done) => {
+    server.close(done);
+  });
+
+  it('GET /api/profiles should return all user profiles', async () => {
+    const res = await request(server).get('/api/profiles');
+    assert.strictEqual(res.statusCode, 200);
+    assert.ok(Array.isArray(res.body));
+    assert.ok(res.body.length >= 5); // Check for at least the 5 seeded profiles
   });
 });
