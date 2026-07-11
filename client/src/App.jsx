@@ -3,7 +3,7 @@ import L from 'leaflet';
 
 const API_BASE_URL = 'http://localhost:3000/api';
 
-export default function App() {
+function MainApp() {
   const [activeView, setActiveView] = useState('login'); // 'login', 'wizard', 'dashboard'
   const [profiles, setProfiles] = useState([]);
   const [activeProfile, setActiveProfile] = useState(null);
@@ -14,15 +14,6 @@ export default function App() {
   const [news, setNews] = useState([]);
   const [expandedNewsIdx, setExpandedNewsIdx] = useState(null);
   const [newsSummaries, setNewsSummaries] = useState({}); // { [index]: { bullets: [...], loading: boolean } }
-  
-  const [incidents, setIncidents] = useState([]);
-  
-  // Filtered incidents close to user's active profile coordinates (within ~25km / 0.25 degrees)
-  const localIncidents = activeProfile ? incidents.filter(inc => {
-    const latDiff = Math.abs(inc.latitude - activeProfile.latitude);
-    const lngDiff = Math.abs(inc.longitude - activeProfile.longitude);
-    return latDiff < 0.25 && lngDiff < 0.25;
-  }) : [];
   
   // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
@@ -74,21 +65,11 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Incident Reporting Modal State
-  const [reportingIncident, setReportingIncident] = useState(false);
-  const [incidentCategory, setIncidentCategory] = useState('Severe Waterlogging');
-  const [incidentCoords, setIncidentCoords] = useState({ lat: 19.0760, lng: 72.8777 });
-
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
-  const mapContainerRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const markerInstanceRef = useRef(null);
-
-  // Load user profiles and incidents on mount
+  // Load user profiles on mount
   useEffect(() => {
     fetchProfiles();
-    fetchIncidents();
   }, []);
 
   // Whenever active profile changes, reload weather, news, and AI Advice
@@ -103,12 +84,12 @@ export default function App() {
     }
   }, [activeProfile]);
 
-  // Whenever weather, news, incidents, language, or GPS zones update, trigger AI advice refresh
+  // Whenever weather, news, language, or GPS zones update, trigger AI advice refresh
   useEffect(() => {
     if (activeProfile && currentWeather) {
       fetchAiAdvice();
     }
-  }, [currentWeather, incidents, activeProfile?.language, weatherZone, gpsCoords, gpsCityName]);
+  }, [currentWeather, activeProfile?.language, weatherZone, gpsCoords, gpsCityName]);
 
   // -------------------------------------------------------------
   // API FETCH FUNCTIONS
@@ -121,16 +102,6 @@ export default function App() {
       setProfiles(data);
     } catch (e) {
       console.error('Error fetching profiles', e);
-    }
-  };
-
-  const fetchIncidents = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/incidents`);
-      const data = await res.json();
-      setIncidents(data);
-    } catch (e) {
-      console.error('Error fetching incidents', e);
     }
   };
 
@@ -1378,4 +1349,51 @@ function getLanguageLabel(lang) {
     en: 'English'
   };
   return labels[lang] || 'English';
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6">
+          <div className="max-w-md w-full bg-white border border-outline-variant p-8 rounded-2xl shadow-lg text-center space-y-4">
+            <span className="material-symbols-outlined text-error text-5xl">error</span>
+            <h2 className="text-xl font-bold text-primary">Something went wrong</h2>
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              An unexpected error occurred in the layout interface. Please reload the page.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-2 bg-primary text-white rounded-lg text-xs font-bold active-scale transition-standard hover:bg-primary-container"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
 }

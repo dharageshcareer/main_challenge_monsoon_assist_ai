@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import Parser from 'rss-parser';
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
@@ -12,13 +14,55 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
-
 // Initialize SQLite database schema
 initDatabase();
 
-// Initialize Google Gen AI client if API key is provided
+// -------------------------------------------------------------
+// SECURITY CONFIGURATION
+// -------------------------------------------------------------
+
+// Use Helmet to set secure HTTP headers (XSS protection, referrer policy, etc.)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// Configure secure CORS options (limit to development ports and deployed domains)
+const allowedOrigins = [
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'https://monsoonmind-assist-98.web.app',
+  'https://monsoonmind-assist-98.firebaseapp.com'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow server-to-server or mobile app requests (origin is undefined)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Blocked by secure CORS policy'));
+    }
+  },
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
+
+app.use(express.json());
+
+// Set up API rate limiting to mitigate denial of service (DoS) and brute force
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 150, // Limit each IP to 150 requests per window
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes' }
+});
+
+app.use('/api/', apiLimiter);
+
+// -------------------------------------------------------------
+// GEN AI SETUP
+// -------------------------------------------------------------
 let ai = null;
 if (process.env.GEMINI_API_KEY) {
   ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -27,10 +71,17 @@ if (process.env.GEMINI_API_KEY) {
   console.warn('[Gemini] WARNING: GEMINI_API_KEY is not defined. AI endpoints will run in fallback simulation mode.');
 }
 
-// Model identifier constant
 const MODEL_NAME = 'gemini-flash-lite-latest';
 
-// Helper to map language code to label
+// -------------------------------------------------------------
+// UTILITIES & LANGUAGE HELPERS
+// -------------------------------------------------------------
+
+/**
+ * Maps a language code (mr, ml, bn, ta, hi, en) to a human-readable name.
+ * @param {string} lang - Language code.
+ * @returns {string} Human-readable language name.
+ */
 function getLanguageLabel(lang) {
   const labels = {
     mr: 'Marathi',
@@ -46,6 +97,10 @@ function getLanguageLabel(lang) {
 // -------------------------------------------------------------
 // FALLBACK DATA GENERATORS FOR RESILIENCE
 // -------------------------------------------------------------
+
+/**
+ * Provides static, validated fallbacks for context advisories when APIs fail.
+ */
 function getAdviceFallback(profile, lang) {
   const fallback = {
     mr: {
@@ -83,7 +138,7 @@ function getAdviceFallback(profile, lang) {
     hi: {
       advice: `नमस्ते ${profile.name}, सेक्टर 48 गुरुग्राम में बेसमेंट वाले विला के लिए सुरक्षा अलर्ट।`,
       checklist: [
-        "निजी बेसमेंट में पानी भरने की स्थिति में पंप तैयार रखें।",
+        "निजी बेसमेंट में पानी भरने की स्थिति में पंप तैयार रखें.",
         "अपनी एसयूवी को सुरक्षित ऊंचाई पर पार्क करें।",
         "बच्चों के साथ घर के अंदर सुरक्षित रहें।"
       ]
@@ -100,6 +155,9 @@ function getAdviceFallback(profile, lang) {
   return fallback[lang] || fallback.en;
 }
 
+/**
+ * Provides static fallback route safety reports.
+ */
 function getRouteFallback(language) {
   const fallback = {
     mr: {
@@ -109,12 +167,12 @@ function getRouteFallback(language) {
     },
     ml: {
       safetyStatus: 'Unsafe',
-      detailedWarning: 'मुन्नार घाटात मुसळधार पावसामुळे दरड कोसळण्याची भीती आहे. सार्वजनिक बस सेवा विस्कळीत होऊ शकते.',
+      detailedWarning: 'मुन्नാര घाटात मुसळधार पावसामुळे दरड कोसळण्याची भीती आहे. सार्वजनिक बस सेवा विस्कळीत होऊ शकते.',
       alternateRoute: 'घाटातील प्रवास टाळा आणि हवामान सुधारेपर्यंत सुरक्षित ठिकाणी थांबा.'
     },
     bn: {
       safetyStatus: 'Safe',
-      detailedWarning: 'নিউ টাউনে বৃষ্টি মাঝারি হলেও मेट्रो ট্রানজিট सচল রয়েছে। काही ठिकाणी पाणी साचले असू शकते.',
+      detailedWarning: 'নিউ টাউনে বৃষ্টি মাঝারি হলেও मेट्रो ট্রানজিট সচল রয়েছে। काही ठिकाणी पाणी साचले असू शकते.',
       alternateRoute: 'মেট্রো ব্যবহার করুন এবং জলমগ্ন সার্ভিস রোড এড়িয়ে চলুন।'
     },
     ta: {
@@ -130,12 +188,15 @@ function getRouteFallback(language) {
     en: {
       safetyStatus: 'Caution',
       detailedWarning: 'Localized waterlogging reported near low-lying points. High risk of transit delays.',
-      alternateRoute: 'Use arterial flyovers and avoid arterial service roads.'
+      alternateRoute: 'Use arterial flyovers and avoid service roads.'
     }
   };
   return fallback[language] || fallback.en;
 }
 
+/**
+ * Provides bullet point fallbacks for news descriptions.
+ */
 function getNewsFallback(langLabel) {
   return [
     `मुख्य धोका आणि जलद पाण्याचा निचरा होण्याची सद्यस्थिती. (${langLabel})`,
@@ -143,11 +204,14 @@ function getNewsFallback(langLabel) {
   ];
 }
 
+/**
+ * Provides chatbot response fallbacks.
+ */
 function getChatFallback(profile, lang) {
   const replies = {
     mr: `नमस्कार ${profile?.name ?? ''}, मी वेदरमॅन आहे. तुम्हाला प्रथमोपचार किंवा पुराच्या परिस्थितीबाबत कोणतीही मदत हवी असल्यास कृपया विचारा.`,
     ml: `ഹലോ ${profile?.name ?? ''}, ഞാൻ വെതർമാൻ ആണ്. ദുരന്ത നിവാരണത്തെക്കുറിച്ചോ പ്രഥമശുശ്രൂഷയെക്കുറിച്ചോ എന്തെങ്കിലും ചോദ്യങ്ങളുണ്ടെങ്കിൽ ചോദിക്കാവുന്നതാണ്.`,
-    bn: `হ্যালো ${profile?.name ?? ''}, আমি ওয়েদারম্যান। ঘূর্ণিঝড় বা অতিবৃষ্টির সময় ফার্স্ট-এইড এবং সুরক্ষার পরামর্শ देना আমি প্রস্তুত।`,
+    bn: `হ্যালো ${profile?.name ?? ''}, আমি ওয়েদারম্যান। ঘূর্ণিঝড় বা অতিবৃষ্টির সময় ফার্স্ট-এইড এবং সুরক্ষার পরামর্শ দিতে আমি প্রস্তুত।`,
     ta: `வணக்கம் ${profile?.name ?? ''}, நான் வெதர்மன். வெள்ள கால முதலுதவி அல்லது அவசரகால பாதுகாப்பு வழிகாட்டுதல்கள் ஏதேனும் தேவையா?`,
     hi: `नमस्ते ${profile?.name ?? ''}, मैं वेदरमैन हूँ। आपातकालीन प्राथमिक चिकित्सा या मानसून सुरक्षा के बारे में जानकारी के लिए मुझसे बात करें।`,
     en: `Hello ${profile?.name ?? ''}, I am WeatherMan. How can I assist you with safety advisories, first-aid steps, or nearby incidents today?`
@@ -171,7 +235,8 @@ app.get('/api/profiles', (req, res) => {
     }));
     res.json(parsedRows);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[DB Error] Fetch profiles failed:', error);
+    res.status(500).json({ error: 'Internal server query error' });
   }
 });
 
@@ -189,7 +254,8 @@ app.get('/api/profiles/:id', (req, res) => {
       infrastructure: JSON.parse(row.infrastructure_json)
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error(`[DB Error] Fetch profile ${req.params.id} failed:`, error);
+    res.status(500).json({ error: 'Internal server query error' });
   }
 });
 
@@ -197,6 +263,10 @@ app.get('/api/profiles/:id', (req, res) => {
 app.post('/api/profiles', (req, res) => {
   try {
     const { name, location, latitude, longitude, language, household, infrastructure } = req.body;
+
+    if (!name || !location || !language) {
+      return res.status(400).json({ error: 'Missing required onboarding parameters' });
+    }
 
     const stmt = db.prepare(`
       INSERT INTO users (name, location, latitude, longitude, language, household_json, infrastructure_json)
@@ -206,11 +276,11 @@ app.post('/api/profiles', (req, res) => {
     const result = stmt.run(
       name,
       location,
-      parseFloat(latitude),
-      parseFloat(longitude),
+      parseFloat(latitude || 19.0760),
+      parseFloat(longitude || 72.8777),
       language,
-      JSON.stringify(household),
-      JSON.stringify(infrastructure)
+      JSON.stringify(household || {}),
+      JSON.stringify(infrastructure || {})
     );
 
     const selectStmt = db.prepare('SELECT * FROM users WHERE id = ?');
@@ -222,7 +292,8 @@ app.post('/api/profiles', (req, res) => {
       infrastructure: JSON.parse(newUser.infrastructure_json)
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[DB Error] Create profile failed:', error);
+    res.status(500).json({ error: 'Internal server write error' });
   }
 });
 
@@ -233,7 +304,8 @@ app.get('/api/incidents', (req, res) => {
     const rows = stmt.all();
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[DB Error] Fetch incidents failed:', error);
+    res.status(500).json({ error: 'Internal server query error' });
   }
 });
 
@@ -241,6 +313,10 @@ app.get('/api/incidents', (req, res) => {
 app.post('/api/incidents', (req, res) => {
   try {
     const { category, latitude, longitude, reported_by } = req.body;
+
+    if (!category || !latitude || !longitude) {
+      return res.status(400).json({ error: 'Missing coordinates or incident category' });
+    }
 
     const stmt = db.prepare(`
       INSERT INTO incidents (category, latitude, longitude, reported_by)
@@ -259,35 +335,8 @@ app.post('/api/incidents', (req, res) => {
 
     res.status(201).json(newIncident);
   } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Secure proxy for Nominatim Reverse Geocoding (OpenStreetMap)
-app.get('/api/reverse-geocode', async (req, res) => {
-  try {
-    const { lat, lng } = req.query;
-    if (!lat || !lng) {
-      return res.status(400).json({ error: 'Latitude and Longitude are required' });
-    }
-
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=en`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'MonsoonMind/1.0'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch geocoding data: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const address = data.address || {};
-    const cityName = address.city || address.town || address.village || address.suburb || address.state || 'Unknown Location';
-    res.json({ city: cityName });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[DB Error] Create incident failed:', error);
+    res.status(500).json({ error: 'Internal server write error' });
   }
 });
 
@@ -301,7 +350,7 @@ app.get('/api/weather', async (req, res) => {
       return res.status(400).json({ error: 'Latitude and Longitude are required' });
     }
 
-    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,precipitation,rain,weather_code&hourly=temperature_2m,rain&timezone=auto`;
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${parseFloat(lat)}&longitude=${parseFloat(lng)}&current=temperature_2m,precipitation,rain,weather_code&hourly=temperature_2m,rain&timezone=auto`;
     const response = await fetch(weatherUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch weather data from Open-Meteo: ${response.statusText}`);
@@ -310,7 +359,8 @@ app.get('/api/weather', async (req, res) => {
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[Weather Proxy Error]', error);
+    res.status(500).json({ error: 'Failed to retrieve weather reports' });
   }
 });
 
@@ -327,6 +377,7 @@ app.get('/api/news', async (req, res) => {
     }
 
     const mainLocation = location.split(',')[0].trim();
+    // Sanitized location tag to prevent script inject
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(mainLocation)}+monsoon+flooding&hl=en-IN&gl=IN&ceid=IN:en`;
 
     const feed = await rssParser.parseURL(rssUrl);
@@ -340,7 +391,39 @@ app.get('/api/news', async (req, res) => {
 
     res.json(items);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[News Proxy Error]', error);
+    res.status(500).json({ error: 'Failed to retrieve neighborhood bulletins' });
+  }
+});
+
+// -------------------------------------------------------------
+// REVERSE GEOCODING PROXY
+// -------------------------------------------------------------
+app.get('/api/reverse-geocode', async (req, res) => {
+  try {
+    const { lat, lng } = req.query;
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'Latitude and Longitude are required' });
+    }
+
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${parseFloat(lat)}&lon=${parseFloat(lng)}&format=json&accept-language=en`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'MonsoonMind/1.0'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch geocoding data: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const address = data.address || {};
+    const cityName = address.city || address.town || address.village || address.suburb || address.state || 'Unknown Location';
+    res.json({ city: cityName });
+  } catch (error) {
+    console.error('[Reverse Geocode Error]', error);
+    res.status(500).json({ error: 'Failed to geocode location coordinates' });
   }
 });
 
@@ -348,7 +431,6 @@ app.get('/api/news', async (req, res) => {
 // GENERATIVE AI INTEGRATIONS & RUNTIME GUARDRAILS
 // -------------------------------------------------------------
 
-// Zod validation schemas
 const adviceSchema = z.object({
   advice: z.string(),
   checklist: z.array(z.string())
@@ -381,7 +463,6 @@ app.post('/api/ai-advice', async (req, res) => {
     const rainRate = weather?.current?.rain ?? 0;
     const langLabel = getLanguageLabel(lang);
 
-    // Filter incidents to only include those in the user's specific neighborhood area (within 0.2 degrees lat/lng)
     const userLat = parseFloat(profile.latitude);
     const userLng = parseFloat(profile.longitude);
     const nearbyIncidents = (incidents || []).filter(inc => {
@@ -457,7 +538,6 @@ CRITICAL: Return the response strictly as a JSON object matching this schema:
     res.json(validated);
   } catch (error) {
     console.error('[Gemini Error]', error);
-    // Graceful fallback to prevent frontend crashes
     const fallback = getAdviceFallback(profile, lang);
     res.json(fallback);
   }
@@ -621,7 +701,7 @@ Instructions:
 
 CRITICAL: Return the response strictly as a JSON object matching this schema:
 {
-  "reply": "Empathetic bot response in ${langLabel}"
+  "reply": "Empathetic bot response"
 }`;
 
     if (!ai) {

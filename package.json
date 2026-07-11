@@ -5,9 +5,12 @@
   "scripts": {
     "server": "npm run start --prefix server",
     "client": "npm run dev --prefix client",
-    "test:e2e": "playwright test"
+    "test:unit": "node --test server/server.test.js",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit && npm run test:e2e"
   },
   "devDependencies": {
-    "@playwright/test": "^1.45.0"
+    "@playwright/test": "^1.45.0",
+    "firebase-tools": "^15.23.0"
   }
 }
