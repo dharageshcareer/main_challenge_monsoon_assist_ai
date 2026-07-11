@@ -67,9 +67,24 @@ function MainApp() {
 
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
-  // Load user profiles on mount
+  // Incident Reporting State
+  const [incidents, setIncidents] = useState([]);
+  const [reportingIncident, setReportingIncident] = useState(false);
+  const [incidentCategory, setIncidentCategory] = useState('Waterlogging');
+  const [incidentCoords, setIncidentCoords] = useState({
+    lat: 19.0760,
+    lng: 72.8777
+  });
+
+  // Map Refs
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerInstanceRef = useRef(null);
+
+  // Load user profiles and incidents on mount
   useEffect(() => {
     fetchProfiles();
+    fetchIncidents();
   }, []);
 
   // Whenever active profile changes, reload weather, news, and AI Advice
@@ -124,6 +139,16 @@ function MainApp() {
       setNewsSummaries({});
     } catch (e) {
       console.error('Error fetching news', e);
+    }
+  };
+
+  const fetchIncidents = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/incidents`);
+      const data = await res.json();
+      setIncidents(data);
+    } catch (e) {
+      console.error('Error fetching incidents', e);
     }
   };
 
@@ -1168,22 +1193,35 @@ function MainApp() {
 
               {/* Incidents Board */}
               <section className="bg-white rounded-xl border border-outline-variant/80 shadow-sm p-4 text-left">
-                <p className="text-xs uppercase font-bold text-outline tracking-wider mb-2">Neighborhood Reported Incidents ({localIncidents.length})</p>
-                <div className="max-h-[150px] overflow-y-auto space-y-2">
-                  {localIncidents.length > 0 ? (
-                    localIncidents.map((incident) => (
-                      <div key={incident.id} className="p-3 bg-error-container/10 border border-error-container/30 rounded-lg text-xs flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-error">{incident.category}</p>
-                          <p className="text-[10px] text-outline mt-0.5">By: {incident.reported_by} | Lat: {incident.latitude.toFixed(4)}, Lng: {incident.longitude.toFixed(4)}</p>
-                        </div>
-                        <span className="text-[9px] text-outline font-semibold">{new Date(incident.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                {(() => {
+                  const userLat = activeProfile?.latitude || 19.0760;
+                  const userLng = activeProfile?.longitude || 72.8777;
+                  const localIncidents = (incidents || []).filter(inc => {
+                    const latDiff = Math.abs(inc.latitude - userLat);
+                    const lngDiff = Math.abs(inc.longitude - userLng);
+                    return latDiff < 0.25 && lngDiff < 0.25;
+                  });
+                  return (
+                    <>
+                      <p className="text-xs uppercase font-bold text-outline tracking-wider mb-2">Neighborhood Reported Incidents ({localIncidents.length})</p>
+                      <div className="max-h-[150px] overflow-y-auto space-y-2">
+                        {localIncidents.length > 0 ? (
+                          localIncidents.map((incident) => (
+                            <div key={incident.id} className="p-3 bg-error-container/10 border border-error-container/30 rounded-lg text-xs flex justify-between items-start">
+                              <div>
+                                <p className="font-bold text-error">{incident.category}</p>
+                                <p className="text-[10px] text-outline mt-0.5">By: {incident.reported_by} | Lat: {incident.latitude.toFixed(4)}, Lng: {incident.longitude.toFixed(4)}</p>
+                              </div>
+                              <span className="text-[9px] text-outline font-semibold">{new Date(incident.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-outline italic py-2">No emergency reports active in this sector.</p>
+                        )}
                       </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-outline italic py-2">No emergency reports active in this sector.</p>
-                  )}
-                </div>
+                    </>
+                  );
+                })()}
               </section>
             </div>
           </main>
