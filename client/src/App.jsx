@@ -111,11 +111,7 @@ function MainApp() {
     }
   }, [currentWeather, activeProfile?.language, weatherZone, gpsCoords, gpsCityName]);
 
-  // -------------------------------------------------------------
-  // API FETCH FUNCTIONS
-  // -------------------------------------------------------------
-
-  const fetchProfiles = async () => {
+  const fetchProfiles = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/profiles`);
       const data = await res.json();
@@ -123,9 +119,14 @@ function MainApp() {
     } catch (e) {
       console.error('Error fetching profiles', e);
     }
-  };
+  }, []);
 
-  const fetchWeather = async (lat, lng) => {
+  useEffect(() => {
+    fetchProfiles();
+    fetchIncidents();
+  }, [fetchProfiles, fetchIncidents]);
+
+  const fetchWeather = useCallback(async (lat, lng) => {
     try {
       const res = await fetch(`${API_BASE_URL}/weather?lat=${lat}&lng=${lng}`);
       const data = await res.json();
@@ -133,9 +134,9 @@ function MainApp() {
     } catch (e) {
       console.error('Error fetching weather', e);
     }
-  };
+  }, []);
 
-  const fetchNews = async (location) => {
+  const fetchNews = useCallback(async (location) => {
     try {
       const res = await fetch(`${API_BASE_URL}/news?location=${encodeURIComponent(location)}`);
       const data = await res.json();
@@ -145,9 +146,9 @@ function MainApp() {
     } catch (e) {
       console.error('Error fetching news', e);
     }
-  };
+  }, []);
 
-  const fetchIncidents = async () => {
+  const fetchIncidents = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/incidents`);
       const data = await res.json();
@@ -155,9 +156,9 @@ function MainApp() {
     } catch (e) {
       console.error('Error fetching incidents', e);
     }
-  };
+  }, []);
 
-  const fetchAiAdvice = async () => {
+  const fetchAiAdvice = useCallback(async () => {
     if (!activeProfile || !currentWeather) return;
     setAiAdviceLoading(true);
     
@@ -186,7 +187,24 @@ function MainApp() {
     } finally {
       setAiAdviceLoading(false);
     }
-  };
+  }, [activeProfile, currentWeather, weatherZone, gpsCityName, gpsCoords, incidents]);
+
+  useEffect(() => {
+    if (activeProfile) {
+      setWeatherZone('home');
+      fetchWeather(activeProfile.latitude, activeProfile.longitude);
+      fetchNews(activeProfile.location);
+      setRouteOrigin(activeProfile.location);
+      setRouteDestination('');
+      setRouteAdvisory(null);
+    }
+  }, [activeProfile, fetchWeather, fetchNews]);
+
+  useEffect(() => {
+    if (activeProfile && currentWeather) {
+      fetchAiAdvice();
+    }
+  }, [currentWeather, activeProfile, fetchAiAdvice]);
 
   const handleFetchGpsLocation = (callback) => {
     if (navigator.geolocation) {
@@ -267,27 +285,19 @@ function MainApp() {
   };
 
   const incrementCounter = (field) => {
-    setWizardForm(prev => {
-      const updatedHousehold = { ...prev.household, [field]: prev.household[field] + 1 };
-      const details = [];
-      if (updatedHousehold.adults > 0) details.push(`${updatedHousehold.adults} Adults`);
-      if (updatedHousehold.children > 0) details.push(`${updatedHousehold.children} Kids`);
-      if (updatedHousehold.elderly > 0) details.push(`${updatedHousehold.elderly} Elderly`);
-      if (updatedHousehold.pets > 0) details.push(`${updatedHousehold.pets} Pets`);
-      updatedHousehold.details = details.join(', ');
-
-      return {
-        ...prev,
-        household: updatedHousehold
-      };
-    });
+    updateHouseholdCounter(field, 1);
   };
 
   const decrementCounter = (field) => {
+    updateHouseholdCounter(field, -1);
+  };
+  
+  const updateHouseholdCounter = (field, delta) => {
     setWizardForm(prev => {
-      if (prev.household[field] === 0) return prev;
-      const updatedHousehold = { ...prev.household, [field]: prev.household[field] - 1 };
-      
+      const newCount = prev.household[field] + delta;
+      if (newCount < 0) return prev;
+
+      const updatedHousehold = { ...prev.household, [field]: newCount };
       const details = [];
       if (updatedHousehold.adults > 0) details.push(`${updatedHousehold.adults} Adults`);
       if (updatedHousehold.children > 0) details.push(`${updatedHousehold.children} Kids`);
@@ -295,10 +305,7 @@ function MainApp() {
       if (updatedHousehold.pets > 0) details.push(`${updatedHousehold.pets} Pets`);
       updatedHousehold.details = details.join(', ');
 
-      return {
-        ...prev,
-        household: updatedHousehold
-      };
+      return { ...prev, household: updatedHousehold };
     });
   };
 
